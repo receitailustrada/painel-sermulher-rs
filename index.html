@@ -132,11 +132,17 @@
   footer{max-width:1600px;margin:0 auto 40px;padding:0 16px}
   .credits{font-size:13.5px;color:#555;border-top:1px dashed var(--border);padding-top:10px}
 
-  /* PDF helper */
-  .pdf-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-  .pdf-row .field{min-width:280px}
-  .pdf-status{font-size:12px;color:#555;margin-top:4px}
-  .badge-dot{display:inline-block;min-width:18px;height:18px;border-radius:999px;background:#fff;color:var(--roxo);font-size:12px;font-weight:800;line-height:18px;text-align:center;margin-left:6px}
+    /* PDF helper */
+.pdf-row{
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap
+}
+.pdf-row .field{min-width:320px;flex:1}
+.pdf-row button{flex:0 0 auto}
+@media (min-width:900px){
+  .pdf-row{flex-wrap:nowrap}
+}
+.pdf-status{font-size:12px;color:#555;margin-top:4px}
+
 </style>
 </head>
 <body>
@@ -537,8 +543,14 @@
 </footer>
 
 <!-- PDF.js -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.js"></script>
-<script>if (window.pdfjsLib){ pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.js"; }</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+
 <!-- Tesseract.js (OCR local) -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
@@ -1019,124 +1031,161 @@
   ['destinoManual','prioridade','birads','cp','colo-bx','mama-histo','inf-tempo','inf-exames','dpc','mioma-tx','clima','lesoes','colo-lesao-visivel','mama-adenopatia','mama-achadofisico','mioma-sua','mioma-compressivo','dob','data','exame-txt','inf-ooforect','inf-sempar','inf-soro','inf-cesarea','inf-laquea']
     .forEach(id=>{ const el=$('#'+id); if(el){ const ev=(el.type==='checkbox'?'change':'input'); el.addEventListener(ev,()=>{ recomputeRoute(); validar(); atualizarRascunho(); }); } });
 
-  // ====== PDF/Imagem: leitura e marcação ======
-  const pdfFile = $('#pdfFile'), pdfRead = $('#pdfRead'), pdfStatus = $('#pdfStatus'), pdfBadge = $('#pdfBadge'), pdfPagesSpan = $('#pdfPages');
-  let lastText = '';
+// ====== PDF/Imagem: leitura e marcação ======
+const pdfFile = $('#pdfFile'),
+      pdfRead = $('#pdfRead'),
+      pdfStatus = $('#pdfStatus'),
+      pdfBadge = $('#pdfBadge'),
+      pdfPagesSpan = $('#pdfPages');
+let lastText = '';
 
-  pdfFile.addEventListener('change', ()=>{
-    const f = pdfFile.files?.[0];
-    if(!f){ pdfRead.disabled = true; pdfStatus.textContent = 'Selecione um arquivo para habilitar a leitura.'; return; }
+pdfFile.addEventListener('change', ()=>{
+  const f = pdfFile.files?.[0];
+  if(!f){ pdfRead.disabled = true; pdfStatus.textContent = 'Selecione um arquivo para habilitar a leitura.'; return; }
+  pdfRead.disabled = false;
+  pdfRead.textContent = '📄 Ler PDF/Imagem e marcar';
+  pdfStatus.textContent = `Arquivo selecionado: ${f.name} (${Math.round(f.size/1024)} KB).`;
+  pdfBadge.style.display='none'; pdfPagesSpan.textContent='0';
+});
+
+function markPillByText(txt, label){
+  const p = $$('#exames .pill').find(el => (el.querySelector('input')?.value||'').trim()===label);
+  if(p && !p.classList.contains('active')){ p.classList.add('active'); const i=p.querySelector('input'); if(i) i.checked=true; }
+}
+function setBiradsFromText(txt){
+  const m = txt.match(/BI[\s-]?RADS[^0-9]*(\d)([A-C])?/i) || txt.match(/Categoria\s*BI[\s-]?RADS[^0-9]*(\d)/i) || txt.match(/Categoria\s*(\d)\b/i);
+  if(m){
+    const num=m[1], sub=(m[2]||'').toUpperCase();
+    const opt=(num==='4'&&sub)?`BI-RADS 4${sub}`:`BI-RADS ${num}`;
+    const sel=$('#birads');
+    if([...sel.options].some(o=>o.value===opt)) sel.value=opt; else sel.value=`BI-RADS ${num}`;
+  }
+}
+function parseExamText(txt){
+  if(!txt) return;
+  if(/mamograf/i.test(txt)) markPillByText(txt,'Mamografia');
+  if(/ultra[\s-]?sonografia.*mam/gi.test(txt) || /US.*mam/gi.test(txt)) markPillByText(txt,'Ultrassonografia mamária');
+  if(/resson[aâ]ncia.*mama/i.test(txt)) markPillByText(txt,'Ressonância de mama');
+  if(/citopatol|papanicolaou|colo.*citologia/i.test(txt)) markPillByText(txt,'Citopatológico cervical');
+  if(/colposcop/i.test(txt)) markPillByText(txt,'Colposcopia');
+  if(/bi[oó]psia.*colo/i.test(txt)) markPillByText(txt,'Biópsia de colo uterino');
+  if(/transvaginal|p[ée]lvic[ao]/i.test(txt)) markPillByText(txt,'US transvaginal ou pélvica');
+  if(/prolactina|TSH/i.test(txt)) markPillByText(txt,'Prolactina e TSH');
+  if(/\bCA[-\s]?125\b/i.test(txt)) markPillByText(txt,'CA-125');
+  if(/hemograma|ferritina/i.test(txt)) markPillByText(txt,'Hemograma e ferritina');
+  if(/hcg\b|β[-\s]?hcg/i.test(txt)) markPillByText(txt,'β-hCG sérico');
+
+  setBiradsFromText(txt);
+  const bir=$('#birads').value;
+  if(/BI-RADS 4|BI-RADS 5/.test(bir)) markPillByText(txt,'BI-RADS 4 ou 5');
+
+  atualizaSecoes(); recomputeRoute(); validar(); atualizarRascunho();
+}
+
+async function ocrCanvas(canvas){
+  if(!window.Tesseract) throw new Error('OCR indisponível');
+  try{
+    const { data:{ text } } = await Tesseract.recognize(canvas, 'por');
+    return text||'';
+  }catch{
+    const { data:{ text } } = await Tesseract.recognize(canvas, 'eng');
+    return text||'';
+  }
+}
+
+async function extractTextFromPDF(arrayBuffer, onProgress){
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  let full = ''; const pages = Math.min(pdf.numPages, 8);
+  for(let p=1;p<=pages;p++){
+    onProgress && onProgress(p, pages);
+    const page = await pdf.getPage(p);
+    let pageText = '';
+    try{
+      const tc = await page.getTextContent();
+      if(tc?.items?.length) pageText = tc.items.map(i=>i.str).join(' ');
+    }catch{}
+    if(!pageText){
+      const viewport = page.getViewport({scale:1.5});
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      await page.render({canvasContext:ctx, viewport}).promise;
+      pageText = await ocrCanvas(canvas);
+    }
+    full += (pageText||'') + '\n';
+  }
+  return { text: full, pages };
+}
+
+pdfRead.addEventListener('click', async ()=>{
+  const f = pdfFile.files?.[0];
+  if(!f){ showToast('Selecione um arquivo.'); return; }
+
+  pdfRead.disabled = true;
+  pdfRead.textContent = 'Lendo…';
+  pdfBadge.style.display='none'; pdfPagesSpan.textContent='0';
+  pdfStatus.textContent = 'Iniciando leitura…';
+
+  try{
+    const isLikelyPDF = /\.pdf$/i.test(f.name) || f.type==='application/pdf' || f.type==='application/octet-stream';
+    if(f.type.startsWith('image/')){
+      // OCR direto em imagem
+      pdfStatus.textContent = 'Imagem enviada — realizando OCR…';
+      const img = document.createElement('img');
+      img.onload = async ()=>{
+        const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+        canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img,0,0);
+        const text = await ocrCanvas(canvas);
+        lastText = text; pdfStatus.textContent = 'Imagem lida (OCR).';
+        pdfRead.textContent='Lido ✓'; pdfRead.classList.add('btn-done');
+        pdfBadge.style.display='inline-flex'; pdfPagesSpan.textContent='1';
+        parseExamText(text); setTimeout(()=>pdfRead.classList.remove('btn-done'),900);
+        pdfRead.disabled=false;
+      };
+      img.onerror = ()=>{ throw new Error('Falha ao carregar a imagem.'); };
+      img.src = URL.createObjectURL(f);
+      return;
+    }
+
+    if(isLikelyPDF){
+      const buf = await f.arrayBuffer();
+      const {text: t, pages} = await extractTextFromPDF(buf, (p,tot)=>{
+        pdfStatus.textContent = `Lendo PDF… página ${p}/${tot}`;
+      });
+      lastText = t||'';
+      pdfStatus.textContent = t?.trim()? 'PDF lido com sucesso.' : 'PDF lido, porém com pouco texto — possivelmente escaneado.';
+      pdfRead.textContent='Lido ✓'; pdfRead.classList.add('btn-done');
+      pdfBadge.style.display='inline-flex'; pdfPagesSpan.textContent=String(pages);
+      parseExamText(lastText); setTimeout(()=>pdfRead.classList.remove('btn-done'),900);
+      pdfRead.disabled=false;
+      return;
+    }
+
+    // fallback: tentar como imagem via OCR (caso o browser não reporte type direito)
+    pdfStatus.textContent = 'Formato não reconhecido — tentando OCR como imagem…';
+    const buf = await f.arrayBuffer();
+    const blobURL = URL.createObjectURL(new Blob([buf]));
+    const img = document.createElement('img');
+    img.onload = async ()=>{
+      const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+      canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img,0,0);
+      const text = await ocrCanvas(canvas);
+      lastText = text; pdfStatus.textContent = 'Arquivo lido com OCR (fallback).';
+      pdfRead.textContent='Lido ✓'; pdfRead.classList.add('btn-done');
+      pdfBadge.style.display='inline-flex'; pdfPagesSpan.textContent='1';
+      parseExamText(text); setTimeout(()=>pdfRead.classList.remove('btn-done'),900);
+      pdfRead.disabled=false;
+    };
+    img.onerror = ()=>{ throw new Error('Falha no fallback de OCR.'); };
+    img.src = blobURL;
+
+  }catch(e){
+    console.error(e);
+    pdfStatus.textContent = 'Erro ao ler arquivo: ' + (e?.message||'desconhecido');
+    pdfRead.textContent='Tentar novamente';
     pdfRead.disabled = false;
-    pdfStatus.textContent = `Arquivo selecionado: ${f.name} (${Math.round(f.size/1024)} KB).`;
-  });
-
-  function markPillByText(txt, label){
-    const lbls = $$('#exames .pill').filter(p=> (p.querySelector('input')?.value||'').trim()===label);
-    if(lbls.length){ const p=lbls[0]; p.classList.add('active'); const input=p.querySelector('input'); if(input) input.checked=true; }
   }
-  function setBiradsFromText(txt){
-    const m = txt.match(/BI[\s-]?RADS[^0-9]*(\d)([A-C])?/i) || txt.match(/Categoria\s*BI[\s-]?RADS[^0-9]*(\d)/i) || txt.match(/Categoria\s*(\d)\b/i);
-    if(m){
-      const num = m[1]; const sub = m[2]?m[2].toUpperCase():'';
-      const opt = (num==='4' && sub)?`BI-RADS 4${sub}`:`BI-RADS ${num}`;
-      const sel = $('#birads');
-      if([...sel.options].some(o=>o.value===opt)) sel.value = opt;
-      else sel.value = `BI-RADS ${num}`;
-    }
-  }
-  function parseExamText(txt){
-    // mapeia exames
-    if(/mamograf/i.test(txt)) markPillByText(txt,'Mamografia');
-    if(/ultra[\s-]?sonografia.*mam/gi.test(txt) || /US.*mam/gi.test(txt)) markPillByText(txt,'Ultrassonografia mamária');
-    if(/resson[aâ]ncia.*mama/i.test(txt)) markPillByText(txt,'Ressonância de mama');
-    if(/citopatol|papanicolaou|colo.*citologia/i.test(txt)) markPillByText(txt,'Citopatológico cervical');
-    if(/colposcop/i.test(txt)) markPillByText(txt,'Colposcopia');
-    if(/bi[oó]psia.*colo/i.test(txt)) markPillByText(txt,'Biópsia de colo uterino');
-    if(/transvaginal|p[ée]lvic[ao]/i.test(txt)) markPillByText(txt,'US transvaginal ou pélvica');
-    if(/prolactina|TSH/i.test(txt)) markPillByText(txt,'Prolactina e TSH');
-    if(/\bCA[-\s]?125\b/i.test(txt)) markPillByText(txt,'CA-125');
-    if(/hemograma|ferritina/i.test(txt)) markPillByText(txt,'Hemograma e ferritina');
-    if(/hcg\b|β[-\s]?hcg/i.test(txt)) markPillByText(txt,'β-hCG sérico');
-
-    // BI-RADS
-    setBiradsFromText(txt);
-    const bir=$('#birads').value;
-    if(/BI-RADS 4|BI-RADS 5/.test(bir)) {
-      // marca alerta de BI-RADS 4/5
-      const p = $$('#exames .pill').find(x=>(x.querySelector('input')?.value||'')==='BI-RADS 4 ou 5');
-      if(p){ p.classList.add('active'); const input=p.querySelector('input'); if(input) input.checked=true; }
-    }
-
-    atualizaSecoes(); recomputeRoute(); validar(); atualizarRascunho();
-  }
-
-  async function ocrCanvas(canvas){
-    if(!window.Tesseract){ throw new Error('OCR não disponível'); }
-    try{
-      const { data:{ text } } = await Tesseract.recognize(canvas, 'por', { logger:m=>{} });
-      return text || '';
-    }catch{
-      const { data:{ text } } = await Tesseract.recognize(canvas, 'eng', { logger:m=>{} });
-      return text || '';
-    }
-  }
-
-  async function extractTextFromPDF(arrayBuffer){
-    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-    let full = ''; const pages = Math.min(pdf.numPages, 6);
-    for(let p=1;p<=pages;p++){
-      const page = await pdf.getPage(p);
-      const tc = await page.getTextContent().catch(()=>null);
-      if(tc && tc.items && tc.items.length){
-        full += tc.items.map(i=>i.str).join(' ') + '\n';
-      }else{
-        // fallback OCR na página
-        const viewport = page.getViewport({scale:1.5});
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = viewport.width; canvas.height = viewport.height;
-        await page.render({canvasContext:ctx, viewport}).promise;
-        const txt = await ocrCanvas(canvas);
-        full += (txt || '') + '\n';
-      }
-    }
-    return { text: full, pages };
-  }
-
-  pdfRead.addEventListener('click', async ()=>{
-    const f = pdfFile.files?.[0];
-    if(!f){ showToast('Selecione um arquivo.'); return; }
-    pdfRead.disabled = true; pdfRead.textContent = 'Lendo…'; pdfRead.classList.remove('btn-done');
-    pdfBadge.style.display='none'; pdfPagesSpan.textContent='0';
-    try{
-      let text='';
-      if(f.type.startsWith('image/')){
-        // OCR direto em imagem
-        const img = document.createElement('img');
-        img.onload = async ()=>{
-          const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
-          canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img,0,0);
-          text = await ocrCanvas(canvas);
-          lastText = text; pdfStatus.textContent = 'Imagem lida com OCR.'; pdfRead.textContent='Lido ✓'; pdfRead.classList.add('btn-done'); pdfBadge.style.display='inline-flex'; pdfPagesSpan.textContent='1';
-          parseExamText(text); setTimeout(()=>{ pdfRead.classList.remove('btn-done'); },900);
-        };
-        img.onerror = ()=>{ throw new Error('Falha ao carregar a imagem.'); };
-        img.src = URL.createObjectURL(f);
-      }else{
-        const buf = await f.arrayBuffer();
-        const {text: t, pages} = await extractTextFromPDF(buf);
-        lastText = t||''; pdfStatus.textContent = t?.trim()? 'PDF lido com sucesso.' : 'PDF lido, porém com pouco texto — use OCR/imagem de melhor qualidade.';
-        pdfRead.textContent='Lido ✓'; pdfRead.classList.add('btn-done'); pdfBadge.style.display='inline-flex'; pdfPagesSpan.textContent=String(pages);
-        parseExamText(lastText); setTimeout(()=>{ pdfRead.classList.remove('btn-done'); },900);
-      }
-    }catch(e){
-      console.error(e);
-      pdfStatus.textContent = 'Erro ao ler arquivo. Tente outro PDF/imagem (ou verifique permissões).';
-      pdfRead.textContent='Tentar novamente';
-    }finally{
-      pdfRead.disabled = false;
-    }
-  });
+});
 
   // Inicial
   recomputeRoute(); validar(); setOutput('');
